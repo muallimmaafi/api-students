@@ -1,4 +1,4 @@
-package main
+package model
 
 import "time"
 
@@ -51,6 +51,8 @@ type Meta struct {
 	TotalPages int `json:"total_pages"`
 }
 
+// ListQuery menampung parameter query untuk endpoint daftar:
+// pencarian, penyaringan, pengurutan, dan paginasi.
 type ListQuery struct {
 	Page     int
 	Limit    int
@@ -58,4 +60,10 @@ type ListQuery struct {
 	Sort     string
 	Order    string
 	IsActive *bool
+}
+
+// Offset menghitung berapa baris yang dilewati untuk halaman ini.
+// Dipakai nanti oleh repository untuk LIMIT/OFFSET di SQL.
+func (q ListQuery) Offset() int {
+	return (q.Page - 1) * q.Limit
 }

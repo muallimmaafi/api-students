@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"api-students/app/model"
 )
 
-var students []Student
+var students []model.Student
 var nextID = 1
 
 func findStudentIndex(id int) int {
@@ -21,9 +22,7 @@ func findStudentIndex(id int) int {
 	return -1
 }
 
-// cocokPencarian memeriksa apakah kata kunci muncul di nama mahasiswa.
-// Modul poin 3 minta search khusus pada nama, tidak membedakan huruf besar/kecil.
-func cocokPencarian(s Student, kata string) bool {
+func cocokPencarian(s model.Student, kata string) bool {
 	return strings.Contains(strings.ToLower(s.Name), strings.ToLower(kata))
 }
 
@@ -38,8 +37,7 @@ func paramID(c *fiber.Ctx) (int, bool) {
 func listStudents(c *fiber.Ctx) error {
 	q := parseListQuery(c)
 
-	// 1) Saring
-	hasil := []Student{}
+	hasil := []model.Student{}
 	for _, s := range students {
 		if q.IsActive != nil && s.IsActive != *q.IsActive {
 			continue
@@ -50,7 +48,6 @@ func listStudents(c *fiber.Ctx) error {
 		hasil = append(hasil, s)
 	}
 
-	// 2) Urutkan
 	sort.SliceStable(hasil, func(i, j int) bool {
 		var lebihKecil bool
 		switch q.Sort {
@@ -71,7 +68,6 @@ func listStudents(c *fiber.Ctx) error {
 		return lebihKecil
 	})
 
-	// 3) Potong sesuai halaman
 	total := len(hasil)
 	totalPages := (total + q.Limit - 1) / q.Limit
 	mulai := (q.Page - 1) * q.Limit
@@ -83,7 +79,7 @@ func listStudents(c *fiber.Ctx) error {
 		akhir = total
 	}
 
-	return okList(c, "daftar mahasiswa berhasil diambil", hasil[mulai:akhir], &Meta{
+	return okList(c, "daftar mahasiswa berhasil diambil", hasil[mulai:akhir], &model.Meta{
 		Page: q.Page, Limit: q.Limit, Total: total, TotalPages: totalPages,
 	})
 }
@@ -101,7 +97,7 @@ func getStudent(c *fiber.Ctx) error {
 }
 
 func createStudent(c *fiber.Ctx) error {
-	var req CreateStudentRequest
+	var req model.CreateStudentRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fail(c, fiber.StatusBadRequest, "body harus berupa JSON yang valid")
 	}
@@ -128,7 +124,7 @@ func createStudent(c *fiber.Ctx) error {
 		return failValidation(c, errs)
 	}
 
-	baru := Student{
+	baru := model.Student{
 		ID:        nextID,
 		NIM:       req.NIM,
 		Name:      req.Name,
@@ -143,8 +139,6 @@ func createStudent(c *fiber.Ctx) error {
 		"/api/v1/students/"+strconv.Itoa(baru.ID))
 }
 
-// PUT mengganti SELURUH isi. Field yang tidak dikirim dianggap dikosongkan,
-// karena itu semuanya wajib ada.
 func replaceStudent(c *fiber.Ctx) error {
 	id, valid := paramID(c)
 	if !valid {
@@ -155,7 +149,7 @@ func replaceStudent(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusNotFound, "mahasiswa tidak ditemukan")
 	}
 
-	var req ReplaceStudentRequest
+	var req model.ReplaceStudentRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fail(c, fiber.StatusBadRequest, "body harus berupa JSON yang valid")
 	}
@@ -176,7 +170,6 @@ func replaceStudent(c *fiber.Ctx) error {
 		return failValidation(c, errs)
 	}
 
-	// Cek NIM bentrok dengan mahasiswa lain (bukan dirinya sendiri)
 	for idx, s := range students {
 		if idx != i && s.NIM == req.NIM {
 			return fail(c, fiber.StatusConflict, "NIM sudah dipakai mahasiswa lain")
@@ -191,7 +184,6 @@ func replaceStudent(c *fiber.Ctx) error {
 	return ok(c, "mahasiswa berhasil diganti seluruhnya", students[i])
 }
 
-// PATCH hanya mengubah field yang benar-benar dikirim.
 func patchStudent(c *fiber.Ctx) error {
 	id, valid := paramID(c)
 	if !valid {
@@ -202,7 +194,7 @@ func patchStudent(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusNotFound, "mahasiswa tidak ditemukan")
 	}
 
-	var req PatchStudentRequest
+	var req model.PatchStudentRequest
 	if err := c.BodyParser(&req); err != nil {
 		return fail(c, fiber.StatusBadRequest, "body harus berupa JSON yang valid")
 	}
@@ -255,4 +247,3 @@ func deleteStudent(c *fiber.Ctx) error {
 	students = append(students[:i], students[i+1:]...)
 	return noContent(c)
 }
-
