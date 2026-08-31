@@ -2,3 +2,4 @@ put1.json
 put2.json
 .env
 logs/
+body*.json
