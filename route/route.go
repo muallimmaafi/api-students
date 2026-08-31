@@ -39,6 +39,6 @@ func healthCheck(pool *pgxpool.Pool) fiber.Handler {
 			return helper.Fail(c, fiber.StatusServiceUnavailable,
 				"database tidak dapat dihubungi")
 		}
-		return helper.Success(c, fiber.StatusOK, "server dan database berjalan", nil)
+		return helper.Success(c, fiber.StatusOK, "server dan database berjalan", fiber.Map{"timestamp": time.Now()})
 	}
 }
