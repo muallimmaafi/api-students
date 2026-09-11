@@ -15,15 +15,14 @@ import (
 // NewApp merakit aplikasi: membuat instance Fiber, memasang middleware,
 // lalu mendaftarkan route. File ini adalah tempat seluruh bagian bertemu.
 func NewApp(
-	logger *slog.Logger, pool *pgxpool.Pool, studentService *service.StudentService,
-) *fiber.App {
+	logger *slog.Logger, pool *pgxpool.Pool, studentService *service.StudentService, prestasiService *service.PrestasiService) *fiber.App {
 	app := fiber.New(fiber.Config{
 		AppName:      GetEnv("APP_NAME", "Tugas Mandiri - api-students"),
 		ErrorHandler: newErrorHandler(logger),
 	})
 
 	middleware.Register(app, logger)
-	route.Register(app, pool, studentService)
+	route.Register(app, pool, studentService, prestasiService)
 
 	// Penampung terakhir untuk URL yang tidak dikenal.
 	app.Use(func(c *fiber.Ctx) error {
