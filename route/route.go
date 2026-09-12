@@ -12,24 +12,42 @@ import (
 	"api-students/middleware"
 )
 
-// Register memetakan URL ke method pada service.
-//
-// Perhatikan isi file ini: tidak ada logika bisnis, tidak ada query,
-// tidak ada validasi. Hanya daftar alamat dan siapa yang melayaninya.
-func Register(app *fiber.App, pool *pgxpool.Pool, studentService *service.StudentService, prestasiService *service.PrestasiService) {
+// Dependencies mengumpulkan seluruh service jadi satu struct, supaya
+// penambahan service berikutnya tidak mengubah tanda tangan Register.
+type Dependencies struct {
+	Pool            *pgxpool.Pool
+	JWT             *helper.JWTManager
+	StudentService  *service.StudentService
+	PrestasiService *service.PrestasiService
+	AuthService     *service.AuthService
+}
+
+func Register(app *fiber.App, deps Dependencies) {
 	api := app.Group("/api/v1")
 
-	api.Get("/health", healthCheck(pool))
+	// --- publik ---
+	api.Get("/health", healthCheck(deps.Pool))
 
-	students := api.Group("/students", middleware.RequireJSON)
-	students.Get("/", studentService.List)
-	students.Get("/:id", studentService.Get)
-	students.Post("/", studentService.Create)
-	students.Put("/:id", studentService.Replace)
-	students.Patch("/:id", studentService.Patch)
-	students.Delete("/:id", studentService.Delete)
+	// --- autentikasi ---
+	auth := api.Group("/auth", middleware.RequireJSON)
+	auth.Post("/register", deps.AuthService.Register)
+	auth.Post("/login", middleware.LoginRateLimiter(), deps.AuthService.Login)
+	auth.Post("/refresh", deps.AuthService.Refresh)
+	auth.Post("/logout", deps.AuthService.Logout)
+	auth.Get("/me", middleware.RequireAuth(deps.JWT), deps.AuthService.Me)
 
-	api.Post("/prestasi", middleware.RequireJSON, prestasiService.Create)
+	// --- wajib membawa access token ---
+	students := api.Group("/students",
+		middleware.RequireJSON, middleware.RequireAuth(deps.JWT))
+	students.Get("/", deps.StudentService.List)
+	students.Get("/:id", deps.StudentService.Get)
+	students.Post("/", deps.StudentService.Create)
+	students.Put("/:id", deps.StudentService.Replace)
+	students.Patch("/:id", deps.StudentService.Patch)
+	students.Delete("/:id", deps.StudentService.Delete)
+
+	api.Post("/prestasi",
+		middleware.RequireJSON, middleware.RequireAuth(deps.JWT), deps.PrestasiService.Create)
 }
 
 // healthCheck melaporkan kondisi layanan beserta databasenya.
@@ -41,6 +59,7 @@ func healthCheck(pool *pgxpool.Pool) fiber.Handler {
 			return helper.Fail(c, fiber.StatusServiceUnavailable,
 				"database tidak dapat dihubungi")
 		}
-		return helper.Success(c, fiber.StatusOK, "server dan database berjalan", fiber.Map{"timestamp": time.Now()})
+		return helper.Success(c, fiber.StatusOK, "server dan database berjalan",
+			fiber.Map{"timestamp": time.Now()})
 	}
 }
