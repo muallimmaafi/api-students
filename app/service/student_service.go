@@ -12,16 +12,13 @@ import (
 	"api-students/helper"
 )
 
-// StudentService memegang dua tanggung jawab sekaligus pada struktur baku
-// mata kuliah ini: menerima *fiber.Ctx (peran controller) dan menjalankan
-// business rules (peran use case).
 type StudentService struct {
-	repo repository.StudentRepository
+	repo  repository.StudentRepository
+	perms *helper.PermissionSet
 }
 
-// NewStudentService menerima INTERFACE, bukan struct konkret.
-func NewStudentService(repo repository.StudentRepository) *StudentService {
-	return &StudentService{repo: repo}
+func NewStudentService(repo repository.StudentRepository, perms *helper.PermissionSet) *StudentService {
+	return &StudentService{repo: repo, perms: perms}
 }
 
 func (s *StudentService) List(c *fiber.Ctx) error {
@@ -44,9 +41,16 @@ func (s *StudentService) List(c *fiber.Ctx) error {
 	})
 }
 
+// Get memeriksa hak akses SEBELUM mengambil data, mencegah timing attack
+// yang bisa membocorkan keberadaan sebuah id dari selisih waktu 403 vs 404.
 func (s *StudentService) Get(c *fiber.Ctx) error {
 	ctx, cancel := helper.RequestContext(c)
 	defer cancel()
+
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
 
 	id, valid := helper.ParamID(c)
 	if !valid {
@@ -57,12 +61,28 @@ func (s *StudentService) Get(c *fiber.Ctx) error {
 	if err != nil {
 		return translateError(c, err, "gagal mengambil data mahasiswa")
 	}
+
+	ownerID := 0
+	if student.OwnerID != nil {
+		ownerID = *student.OwnerID
+	}
+	if !CanAccessStudent(current, ownerID, s.perms, "student:read:any") {
+		return helper.Fail(c, fiber.StatusForbidden,
+			"tidak berhak mengakses data mahasiswa lain")
+	}
+
 	return helper.Success(c, fiber.StatusOK, "mahasiswa ditemukan", student)
 }
 
+// Create mengisi OwnerID dari identitas pemanggil, TIDAK dari body request.
 func (s *StudentService) Create(c *fiber.Ctx) error {
 	ctx, cancel := helper.RequestContext(c)
 	defer cancel()
+
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
 
 	var req model.CreateStudentRequest
 	if err := c.BodyParser(&req); err != nil {
@@ -73,16 +93,17 @@ func (s *StudentService) Create(c *fiber.Ctx) error {
 	req.NIM = strings.TrimSpace(req.NIM)
 	req.Name = strings.TrimSpace(req.Name)
 
-	// Business rulesnya dipanggil, bukan ditulis ulang di sini.
 	if errs := ValidateCreate(req); len(errs) > 0 {
 		return helper.FailValidation(c, errs)
 	}
 
+	ownerID := current.UserID
 	baru, err := s.repo.Create(ctx, model.Student{
 		NIM:      req.NIM,
 		Name:     req.Name,
 		Grade:    req.Grade,
 		IsActive: true,
+		OwnerID:  &ownerID,
 	})
 	if err != nil {
 		return translateError(c, err, "gagal menyimpan mahasiswa")
@@ -96,9 +117,28 @@ func (s *StudentService) Replace(c *fiber.Ctx) error {
 	ctx, cancel := helper.RequestContext(c)
 	defer cancel()
 
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
+
 	id, valid := helper.ParamID(c)
 	if !valid {
 		return helper.Fail(c, fiber.StatusBadRequest, "id harus berupa angka positif")
+	}
+
+	existing, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return translateError(c, err, "gagal mengambil data mahasiswa")
+	}
+
+	ownerID := 0
+	if existing.OwnerID != nil {
+		ownerID = *existing.OwnerID
+	}
+	if !CanAccessStudent(current, ownerID, s.perms, "student:update:any") {
+		return helper.Fail(c, fiber.StatusForbidden,
+			"tidak berhak mengubah data mahasiswa lain")
 	}
 
 	var req model.ReplaceStudentRequest
@@ -128,9 +168,28 @@ func (s *StudentService) Patch(c *fiber.Ctx) error {
 	ctx, cancel := helper.RequestContext(c)
 	defer cancel()
 
+	current, ok := helper.CurrentUser(c)
+	if !ok {
+		return helper.Fail(c, fiber.StatusUnauthorized, "belum terautentikasi")
+	}
+
 	id, valid := helper.ParamID(c)
 	if !valid {
 		return helper.Fail(c, fiber.StatusBadRequest, "id harus berupa angka positif")
+	}
+
+	saatIni, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return translateError(c, err, "gagal mengambil data mahasiswa")
+	}
+
+	ownerID := 0
+	if saatIni.OwnerID != nil {
+		ownerID = *saatIni.OwnerID
+	}
+	if !CanAccessStudent(current, ownerID, s.perms, "student:update:any") {
+		return helper.Fail(c, fiber.StatusForbidden,
+			"tidak berhak mengubah data mahasiswa lain")
 	}
 
 	var req model.PatchStudentRequest
@@ -141,12 +200,6 @@ func (s *StudentService) Patch(c *fiber.Ctx) error {
 
 	if IsEmptyPatch(req) {
 		return helper.Fail(c, fiber.StatusBadRequest, "tidak ada field yang diubah")
-	}
-
-	// PATCH = baca dulu, ubah seperlunya, lalu simpan kembali.
-	saatIni, err := s.repo.FindByID(ctx, id)
-	if err != nil {
-		return translateError(c, err, "gagal mengambil data mahasiswa")
 	}
 
 	updated, errs := ApplyPatch(saatIni, req)
@@ -177,7 +230,6 @@ func (s *StudentService) Delete(c *fiber.Ctx) error {
 	return helper.NoContent(c)
 }
 
-// translateError memetakan error milik repository menjadi status HTTP.
 func translateError(c *fiber.Ctx, err error, generalMessage string) error {
 	switch {
 	case errors.Is(err, repository.ErrNotFound):
