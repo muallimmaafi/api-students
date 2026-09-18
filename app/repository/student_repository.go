@@ -13,14 +13,12 @@ import (
 )
 
 // Sentinel error: error milik lapisan repository, bukan error milik pgx.
-// Lapisan atas (handler) cukup mengenal dua ini, tidak perlu tahu basis datanya apa.
 var (
 	ErrNotFound  = errors.New("data tidak ditemukan")
 	ErrDuplicate = errors.New("data sudah ada")
 )
 
 // StudentRepository adalah KONTRAK penyimpanan data mahasiswa.
-// Tidak ada satu pun kata "SQL" atau "postgres" di sini.
 type StudentRepository interface {
 	FindAll(ctx context.Context, q model.ListQuery) ([]model.Student, int, error)
 	FindByID(ctx context.Context, id int) (model.Student, error)
@@ -29,10 +27,6 @@ type StudentRepository interface {
 	Delete(ctx context.Context, id int) error
 }
 
-// kolomUrut adalah daftar putih: pemetaan dari nilai yang boleh dikirim klien
-// ke nama kolom sebenarnya. ORDER BY tidak bisa memakai parameter, sehingga
-// nama kolom terpaksa disisipkan sebagai teks — daftar putih inilah satu-satunya
-// hal yang mencegah SQL injection di titik ini.
 var kolomUrut = map[string]string{
 	"id":         "id",
 	"nim":        "nim",
@@ -45,14 +39,10 @@ type studentPostgresRepository struct {
 	pool *pgxpool.Pool
 }
 
-// NewStudentRepository mengembalikan interface, bukan struct konkret.
 func NewStudentRepository(pool *pgxpool.Pool) StudentRepository {
 	return &studentPostgresRepository{pool: pool}
 }
 
-// buildFilter menyusun bagian WHERE beserta argumennya.
-// Nilai dari klien SELALU menjadi argumen ($1, $2, ...), tidak pernah
-// disambung langsung ke dalam teks SQL — ini yang mencegah SQL injection.
 func buildFilter(q model.ListQuery) (string, []any) {
 	where := " WHERE 1 = 1"
 	args := []any{}
@@ -74,22 +64,19 @@ func (r *studentPostgresRepository) FindAll(
 ) ([]model.Student, int, error) {
 	where, args := buildFilter(q)
 
-	// 1) Hitung total sebelum dipenggal, untuk keperluan meta.
 	var total int
 	err := r.pool.QueryRow(ctx, "SELECT COUNT(*) FROM students"+where, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("menghitung mahasiswa: %w", err)
 	}
 
-	// 2) Ambil satu halaman saja. Penyaringan, pengurutan, dan pemenggalan
-	// dikerjakan basis data, bukan oleh Go.
 	arah := "ASC"
 	if q.Order == "desc" {
 		arah = "DESC"
 	}
 
 	sqlText := fmt.Sprintf(
-		`SELECT id, nim, name, grade, is_active, created_at
+		`SELECT id, nim, name, grade, is_active, created_at, owner_id
 		 FROM students%s
 		 ORDER BY %s %s
 		 LIMIT $%d OFFSET $%d`,
@@ -107,7 +94,7 @@ func (r *studentPostgresRepository) FindAll(
 	for rows.Next() {
 		var s model.Student
 		if err := rows.Scan(&s.ID, &s.NIM, &s.Name, &s.Grade,
-			&s.IsActive, &s.CreatedAt); err != nil {
+			&s.IsActive, &s.CreatedAt, &s.OwnerID); err != nil {
 			return nil, 0, fmt.Errorf("membaca baris mahasiswa: %w", err)
 		}
 		hasil = append(hasil, s)
@@ -124,11 +111,10 @@ func (r *studentPostgresRepository) FindByID(
 ) (model.Student, error) {
 	var s model.Student
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, nim, name, grade, is_active, created_at
+		`SELECT id, nim, name, grade, is_active, created_at, owner_id
 		 FROM students WHERE id = $1`, id,
-	).Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.CreatedAt)
+	).Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.CreatedAt, &s.OwnerID)
 	if err != nil {
-		// pgx.ErrNoRows diterjemahkan menjadi error milik kita sendiri.
 		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Student{}, ErrNotFound
 		}
@@ -137,16 +123,16 @@ func (r *studentPostgresRepository) FindByID(
 	return s, nil
 }
 
+// Create menyimpan owner_id yang dikirim dari service — service yang
+// bertanggung jawab mengisinya dari identitas pemanggil, bukan dari body request.
 func (r *studentPostgresRepository) Create(
 	ctx context.Context, s model.Student,
 ) (model.Student, error) {
-	// RETURNING membuat id dan created_at hasil buatan basis data
-	// langsung ikut kembali, tanpa perlu query kedua.
 	err := r.pool.QueryRow(ctx,
-		`INSERT INTO students (nim, name, grade, is_active)
-		 VALUES ($1, $2, $3, $4)
+		`INSERT INTO students (nim, name, grade, is_active, owner_id)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING id, created_at`,
-		s.NIM, s.Name, s.Grade, s.IsActive,
+		s.NIM, s.Name, s.Grade, s.IsActive, s.OwnerID,
 	).Scan(&s.ID, &s.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -157,19 +143,18 @@ func (r *studentPostgresRepository) Create(
 	return s, nil
 }
 
+// Update TIDAK menyentuh owner_id sama sekali — kepemilikan data
+// tidak berubah lewat endpoint PUT/PATCH biasa.
 func (r *studentPostgresRepository) Update(
 	ctx context.Context, s model.Student,
 ) (model.Student, error) {
-	// RETURNING mengembalikan baris hasil perubahan dalam satu perjalanan,
-	// sehingga field yang tidak ikut diubah (created_at) tetap terisi benar.
 	err := r.pool.QueryRow(ctx,
 		`UPDATE students SET nim = $1, name = $2, grade = $3, is_active = $4
 		 WHERE id = $5
-		 RETURNING id, nim, name, grade, is_active, created_at`,
+		 RETURNING id, nim, name, grade, is_active, created_at, owner_id`,
 		s.NIM, s.Name, s.Grade, s.IsActive, s.ID,
-	).Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.CreatedAt)
+	).Scan(&s.ID, &s.NIM, &s.Name, &s.Grade, &s.IsActive, &s.CreatedAt, &s.OwnerID)
 	if err != nil {
-		// Tidak ada baris yang dikembalikan berarti id-nya memang tidak ada.
 		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Student{}, ErrNotFound
 		}
@@ -186,16 +171,12 @@ func (r *studentPostgresRepository) Delete(ctx context.Context, id int) error {
 	if err != nil {
 		return fmt.Errorf("menghapus mahasiswa: %w", err)
 	}
-	// Perintah berhasil dijalankan, tetapi tidak ada baris yang terkena.
-	// Artinya id-nya memang tidak ada.
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
 	return nil
 }
 
-// isUniqueViolation memeriksa apakah error berasal dari pelanggaran
-// batasan UNIQUE. Kode 23505 adalah kode resmi PostgreSQL untuk itu.
 func isUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -203,4 +184,3 @@ func isUniqueViolation(err error) bool {
 	}
 	return false
 }
-
