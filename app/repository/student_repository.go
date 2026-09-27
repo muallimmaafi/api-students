@@ -21,6 +21,7 @@ var (
 // StudentRepository adalah KONTRAK penyimpanan data mahasiswa.
 type StudentRepository interface {
 	FindAll(ctx context.Context, q model.ListQuery) ([]model.Student, int, error)
+	FindAfterCursor(ctx context.Context, q model.CursorQuery) ([]model.Student, error)
 	FindByID(ctx context.Context, id int) (model.Student, error)
 	Create(ctx context.Context, s model.Student) (model.Student, error)
 	Update(ctx context.Context, s model.Student) (model.Student, error)
@@ -121,6 +122,75 @@ func (r *studentPostgresRepository) FindByID(
 		return model.Student{}, fmt.Errorf("mengambil mahasiswa: %w", err)
 	}
 	return s, nil
+}
+
+func (r *studentPostgresRepository) FindAfterCursor(
+	ctx context.Context, q model.CursorQuery,
+) ([]model.Student, error) {
+	where := " WHERE 1 = 1"
+	args := []any{}
+
+	if q.Search != "" {
+		where += fmt.Sprintf(" AND name ILIKE $%d", len(args)+1)
+		args = append(args, "%"+q.Search+"%")
+	}
+
+	if q.IsActive != nil {
+		where += fmt.Sprintf(" AND is_active = $%d", len(args)+1)
+		args = append(args, *q.IsActive)
+	}
+
+	if q.After != nil {
+		where += fmt.Sprintf(
+			" AND (created_at, id) < ($%d, $%d)",
+			len(args)+1,
+			len(args)+2,
+		)
+		args = append(args, q.After.CreatedAt, q.After.ID)
+	}
+
+	sqlText := fmt.Sprintf(
+		`SELECT id, nim, name, grade, is_active, created_at, owner_id
+		 FROM students%s
+		 ORDER BY created_at DESC, id DESC
+		 LIMIT $%d`,
+		where, len(args)+1,
+	)
+
+	// Ambil satu data ekstra untuk menentukan apakah masih ada halaman berikutnya.
+	args = append(args, q.Limit+1)
+
+	rows, err := r.pool.Query(ctx, sqlText, args...)
+	if err != nil {
+		return nil, fmt.Errorf("mengambil daftar mahasiswa dengan cursor: %w", err)
+	}
+	defer rows.Close()
+
+	hasil := []model.Student{}
+
+	for rows.Next() {
+		var s model.Student
+
+		if err := rows.Scan(
+			&s.ID,
+			&s.NIM,
+			&s.Name,
+			&s.Grade,
+			&s.IsActive,
+			&s.CreatedAt,
+			&s.OwnerID,
+		); err != nil {
+			return nil, fmt.Errorf("membaca baris mahasiswa dengan cursor: %w", err)
+		}
+
+		hasil = append(hasil, s)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("membaca hasil cursor: %w", err)
+	}
+
+	return hasil, nil
 }
 
 // Create menyimpan owner_id yang dikirim dari service — service yang

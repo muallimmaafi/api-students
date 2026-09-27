@@ -14,25 +14,25 @@ type Student struct {
 
 // POST — semua field wajib
 type CreateStudentRequest struct {
-	NIM   string  `json:"nim"`
-	Name  string  `json:"name"`
-	Grade float64 `json:"grade"`
+	NIM   string  `json:"nim" validate:"required,notblank"`
+	Name  string  `json:"name" validate:"required,notblank"`
+	Grade float64 `json:"grade" validate:"gte=0,lte=100"`
 }
 
-// PUT — ganti seluruh isi, field bertipe biasa dan semuanya wajib
+// PUT — ganti seluruh isi, semua field wajib
 type ReplaceStudentRequest struct {
-	NIM      string  `json:"nim"`
-	Name     string  `json:"name"`
-	Grade    float64 `json:"grade"`
+	NIM      string  `json:"nim" validate:"required,notblank"`
+	Name     string  `json:"name" validate:"required,notblank"`
+	Grade    float64 `json:"grade" validate:"gte=0,lte=100"`
 	IsActive bool    `json:"is_active"`
 }
 
-// PATCH — ubah sebagian, field bertipe pointer supaya bisa dibedakan
-// antara "tidak dikirim" (nil) dan "dikirim bernilai kosong"
+// PATCH — field pointer agar bisa membedakan
+// "tidak dikirim" (nil) dan "dikirim bernilai kosong"
 type PatchStudentRequest struct {
-	NIM      *string  `json:"nim,omitempty"`
-	Name     *string  `json:"name,omitempty"`
-	Grade    *float64 `json:"grade,omitempty"`
+	NIM      *string  `json:"nim,omitempty" validate:"omitnil,notblank"`
+	Name     *string  `json:"name,omitempty" validate:"omitnil,notblank"`
+	Grade    *float64 `json:"grade,omitempty" validate:"omitnil,gte=0,lte=100"`
 	IsActive *bool    `json:"is_active,omitempty"`
 }
 
@@ -41,7 +41,7 @@ type WebResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 	Data    any    `json:"data,omitempty"`
-	Meta    *Meta  `json:"meta,omitempty"`
+	Meta    any    `json:"meta,omitempty"`
 	Errors  any    `json:"errors,omitempty"`
 }
 
@@ -67,4 +67,26 @@ type ListQuery struct {
 // Dipakai nanti oleh repository untuk LIMIT/OFFSET di SQL.
 func (q ListQuery) Offset() int {
 	return (q.Page - 1) * q.Limit
+}
+
+// Cursor menyimpan posisi terakhir pada pagination.
+// Kombinasi created_at + id digunakan agar urutan selalu unik.
+type Cursor struct {
+	CreatedAt time.Time
+	ID        int
+}
+
+// CursorQuery menampung parameter untuk pagination berbasis cursor.
+type CursorQuery struct {
+	Limit    int
+	Search   string
+	IsActive *bool
+	After    *Cursor
+}
+
+// CursorMeta adalah metadata pagination berbasis cursor.
+type CursorMeta struct {
+	Limit      int    `json:"limit"`
+	NextCursor string `json:"next_cursor,omitempty"`
+	HasMore    bool   `json:"has_more"`
 }

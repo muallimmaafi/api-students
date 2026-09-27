@@ -3,3 +3,13 @@ put2.json
 .env
 logs/
 body*.json
+
+# File JSON untuk testing lokal
+login*.json
+register*.json
+student*.json
+patch*.json
+update*.json
+refresh*.json
+cursor_test.json
+prestasi*.json

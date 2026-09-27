@@ -25,30 +25,12 @@ func TestCountTotalPages(t *testing.T) {
 	}
 }
 
-func TestValidateCreate(t *testing.T) {
-	errs := ValidateCreate(model.CreateStudentRequest{
-		NIM: "", Name: "", Grade: 150,
-	})
-	if len(errs) != 3 {
-		t.Errorf("harap 3 error, dapat %d: %v", len(errs), errs)
-	}
-
-	errsValid := ValidateCreate(model.CreateStudentRequest{
-		NIM: "12345", Name: "Budi", Grade: 85,
-	})
-	if len(errsValid) != 0 {
-		t.Errorf("tidak seharusnya ada error: %v", errsValid)
-	}
-}
-
 func TestApplyPatch(t *testing.T) {
 	initial := model.Student{ID: 1, NIM: "12345", Name: "Budi", Grade: 80, IsActive: true}
 	inactive := false
 
-	result, errs := ApplyPatch(initial, model.PatchStudentRequest{IsActive: &inactive})
-	if len(errs) != 0 {
-		t.Fatalf("tidak seharusnya ada error: %v", errs)
-	}
+	result := ApplyPatch(initial, model.PatchStudentRequest{IsActive: &inactive})
+
 	if result.IsActive {
 		t.Error("is_active seharusnya berubah menjadi false")
 	}

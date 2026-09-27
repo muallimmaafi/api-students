@@ -2,11 +2,13 @@ package helper
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+
 	"api-students/app/model"
 )
 
@@ -54,6 +56,39 @@ func ParseListQuery(c *fiber.Ctx) model.ListQuery {
 	}
 
 	return q
+}
+
+func ParseCursorQuery(c *fiber.Ctx) (model.CursorQuery, error) {
+	q := model.CursorQuery{
+		Limit:  c.QueryInt("limit", 10),
+		Search: strings.TrimSpace(c.Query("search")),
+	}
+
+	if q.Limit < 1 {
+		q.Limit = 10
+	}
+
+	if q.Limit > 100 {
+		q.Limit = 100
+	}
+
+	if raw := c.Query("is_active"); raw != "" {
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			return q, fmt.Errorf("is_active harus bernilai true atau false")
+		}
+		q.IsActive = &v
+	}
+
+	if raw := strings.TrimSpace(c.Query("cursor")); raw != "" {
+		cursor, err := DecodeCursor(raw)
+		if err != nil {
+			return q, fmt.Errorf("cursor tidak valid")
+		}
+		q.After = &cursor
+	}
+
+	return q, nil
 }
 
 func RequestContext(c *fiber.Ctx) (context.Context, context.CancelFunc) {

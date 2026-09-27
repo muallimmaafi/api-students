@@ -23,8 +23,7 @@ func main() {
 	config.LoadEnv()
 	logger := config.NewLogger()
 
-	// Secret diperiksa SEBELUM server menyala. Lebih baik gagal seketika
-	// daripada berjalan dengan token yang mudah dipalsukan.
+	// Secret diperiksa SEBELUM server menyala.
 	jwtSecret := config.GetEnv("JWT_SECRET", "")
 	if len(jwtSecret) < minSecretLength {
 		logger.Error("JWT_SECRET tidak diisi atau terlalu pendek",
@@ -57,15 +56,28 @@ func main() {
 
 	// 3. Perakitan dari dalam ke luar: repository -> service
 	studentRepository := repository.NewStudentRepository(pool)
-	studentService := service.NewStudentService(studentRepository)
 
 	prestasiRepository := repository.NewPrestasiRepository(pool)
 	prestasiService := service.NewPrestasiService(prestasiRepository)
 
 	userRepository := repository.NewUserRepository(pool)
 	tokenRepository := repository.NewTokenRepository(pool)
+	roleRepository := repository.NewRoleRepository(pool)
+
+	// Pemetaan role ke permission dibaca SEKALI saat aplikasi menyala.
+	// Konsekuensinya: perubahan hak akses di database baru berlaku setelah
+	// aplikasi dijalankan ulang. Itu keputusan sadar, bukan kelalaian.
+	rawPermissions, err := roleRepository.LoadPermissions(context.Background())
+	if err != nil {
+		logger.Error("gagal memuat permission", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	permissions := helper.NewPermissionSet(rawPermissions)
+	logger.Info("permission dimuat", slog.Any("roles", permissions.KnownRoles()))
+
+	studentService := service.NewStudentService(studentRepository, permissions)
 	authService := service.NewAuthService(
-		userRepository, tokenRepository, jwtManager,
+		userRepository, tokenRepository, jwtManager, permissions,
 		time.Duration(config.GetEnvInt("JWT_REFRESH_TTL_DAYS", 7))*24*time.Hour,
 	)
 
@@ -73,6 +85,7 @@ func main() {
 	app := config.NewApp(logger, route.Dependencies{
 		Pool:            pool,
 		JWT:             jwtManager,
+		Permissions:     permissions,
 		StudentService:  studentService,
 		PrestasiService: prestasiService,
 		AuthService:     authService,

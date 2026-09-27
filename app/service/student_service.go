@@ -25,20 +25,37 @@ func (s *StudentService) List(c *fiber.Ctx) error {
 	ctx, cancel := helper.RequestContext(c)
 	defer cancel()
 
-	q := helper.ParseListQuery(c)
+	q, err := helper.ParseCursorQuery(c)
+	if err != nil {
+		return helper.Fail(c, fiber.StatusBadRequest, err.Error())
+	}
 
-	students, total, err := s.repo.FindAll(ctx, q)
+	students, err := s.repo.FindAfterCursor(ctx, q)
 	if err != nil {
 		return helper.Fail(c, fiber.StatusInternalServerError,
 			"gagal mengambil data mahasiswa")
 	}
 
-	return helper.SuccessList(c, "daftar mahasiswa berhasil diambil", students, &model.Meta{
-		Page:       q.Page,
-		Limit:      q.Limit,
-		Total:      total,
-		TotalPages: CountTotalPages(total, q.Limit),
-	})
+	hasMore := len(students) > q.Limit
+
+	if hasMore {
+		students = students[:q.Limit]
+	}
+
+	meta := &model.CursorMeta{
+		Limit:   q.Limit,
+		HasMore: hasMore,
+	}
+
+	if hasMore && len(students) > 0 {
+		last := students[len(students)-1]
+		meta.NextCursor = helper.EncodeCursor(model.Cursor{
+			CreatedAt: last.CreatedAt,
+			ID:        last.ID,
+		})
+	}
+
+	return helper.NegotiateStudents(c, students, meta)
 }
 
 // Get memeriksa hak akses SEBELUM mengambil data, mencegah timing attack
@@ -93,7 +110,7 @@ func (s *StudentService) Create(c *fiber.Ctx) error {
 	req.NIM = strings.TrimSpace(req.NIM)
 	req.Name = strings.TrimSpace(req.Name)
 
-	if errs := ValidateCreate(req); len(errs) > 0 {
+	if errs := helper.ValidateStruct(req); len(errs) > 0 {
 		return helper.FailValidation(c, errs)
 	}
 
@@ -150,7 +167,7 @@ func (s *StudentService) Replace(c *fiber.Ctx) error {
 	req.NIM = strings.TrimSpace(req.NIM)
 	req.Name = strings.TrimSpace(req.Name)
 
-	if errs := ValidateReplace(req); len(errs) > 0 {
+	if errs := helper.ValidateStruct(req); len(errs) > 0 {
 		return helper.FailValidation(c, errs)
 	}
 
@@ -202,10 +219,11 @@ func (s *StudentService) Patch(c *fiber.Ctx) error {
 		return helper.Fail(c, fiber.StatusBadRequest, "tidak ada field yang diubah")
 	}
 
-	updated, errs := ApplyPatch(saatIni, req)
-	if len(errs) > 0 {
+	if errs := helper.ValidateStruct(req); len(errs) > 0 {
 		return helper.FailValidation(c, errs)
 	}
+
+	updated := ApplyPatch(saatIni, req)
 
 	hasil, err := s.repo.Update(ctx, updated)
 	if err != nil {

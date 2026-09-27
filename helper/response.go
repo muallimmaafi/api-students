@@ -1,8 +1,8 @@
 package helper
 
 import (
-	"github.com/gofiber/fiber/v2"
 	"api-students/app/model"
+	"github.com/gofiber/fiber/v2"
 )
 
 func Success(c *fiber.Ctx, status int, message string, data any) error {
@@ -13,8 +13,8 @@ func Success(c *fiber.Ctx, status int, message string, data any) error {
 	})
 }
 
-func SuccessList(c *fiber.Ctx, message string, data any, meta *model.Meta) error {
-		return c.Status(fiber.StatusOK).JSON(model.WebResponse{
+func SuccessList(c *fiber.Ctx, message string, data any, meta any) error {
+	return c.Status(fiber.StatusOK).JSON(model.WebResponse{
 		Success: true,
 		Message: message,
 		Data:    data,
