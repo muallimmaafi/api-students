@@ -67,6 +67,22 @@ func main() {
 		slog.String("database", mongoDatabase.Name()),
 	)
 
+	// Inisialisasi repository portofolio MongoDB
+	portfolioRepository := repository.NewPortfolioRepository(mongoDatabase)
+
+	indexCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	err = portfolioRepository.EnsureIndexes(indexCtx)
+	cancel()
+
+	if err != nil {
+		logger.Error("gagal membuat indeks portofolio",
+			slog.String("error", err.Error()),
+		)
+		os.Exit(1)
+	}
+
+	logger.Info("indeks portofolio berhasil disiapkan")
+
 	jwtManager := helper.NewJWTManager(
 		jwtSecret,
 		config.GetEnv("JWT_ISSUER", "api-students"),
