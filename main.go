@@ -111,6 +111,11 @@ func main() {
 	logger.Info("permission dimuat", slog.Any("roles", permissions.KnownRoles()))
 
 	studentService := service.NewStudentService(studentRepository, permissions)
+	portfolioService := service.NewPortfolioService(
+		portfolioRepository,
+		studentRepository,
+	)
+
 	authService := service.NewAuthService(
 		userRepository, tokenRepository, jwtManager, permissions,
 		time.Duration(config.GetEnvInt("JWT_REFRESH_TTL_DAYS", 7))*24*time.Hour,
@@ -118,14 +123,15 @@ func main() {
 
 	// 4. Aplikasi
 	app := config.NewApp(logger, route.Dependencies{
-		Pool:            pool,
-		JWT:             jwtManager,
-		Permissions:     permissions,
-		StudentService:  studentService,
-		PrestasiService: prestasiService,
-		AuthService:     authService,
-		MongoDB:         mongoClient,
-		MongoDatabase:   mongoDatabase,
+		Pool:             pool,
+		JWT:              jwtManager,
+		Permissions:      permissions,
+		StudentService:   studentService,
+		PortfolioService: portfolioService,
+		PrestasiService:  prestasiService,
+		AuthService:      authService,
+		MongoDB:          mongoClient,
+		MongoDatabase:    mongoDatabase,
 	})
 	port := config.GetEnv("APP_PORT", "3000")
 

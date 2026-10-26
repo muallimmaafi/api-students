@@ -16,14 +16,15 @@ import (
 // Dependencies mengumpulkan seluruh service jadi satu struct, supaya
 // penambahan service berikutnya tidak mengubah tanda tangan Register.
 type Dependencies struct {
-	Pool            *pgxpool.Pool
-	MongoDB         *mongo.Client
-	MongoDatabase   *mongo.Database
-	JWT             *helper.JWTManager
-	Permissions     *helper.PermissionSet
-	StudentService  *service.StudentService
-	PrestasiService *service.PrestasiService
-	AuthService     *service.AuthService
+	Pool             *pgxpool.Pool
+	MongoDB          *mongo.Client
+	MongoDatabase    *mongo.Database
+	JWT              *helper.JWTManager
+	Permissions      *helper.PermissionSet
+	StudentService   *service.StudentService
+	PrestasiService  *service.PrestasiService
+	AuthService      *service.AuthService
+	PortfolioService *service.PortfolioService
 }
 
 func Register(app *fiber.App, deps Dependencies) {
@@ -61,6 +62,29 @@ func Register(app *fiber.App, deps Dependencies) {
 	students.Get("/:id", deps.StudentService.Get)
 	students.Put("/:id", deps.StudentService.Replace)
 	students.Patch("/:id", deps.StudentService.Patch)
+
+	// --- portofolio mahasiswa ---
+	portfolios := api.Group("/",
+		middleware.RequireAuth(deps.JWT),
+	)
+
+	// GET dan PUT portofolio mahasiswa.
+	portfolios.Get("/students/:id/portfolio",
+		deps.PortfolioService.Get)
+	portfolios.Put("/students/:id/portfolio",
+		middleware.RequireJSON,
+		deps.PortfolioService.Put)
+
+	// Menambahkan dan menghapus proyek.
+	portfolios.Post("/students/:id/portfolio/projects",
+		middleware.RequireJSON,
+		deps.PortfolioService.AddProject)
+	portfolios.Delete("/students/:id/portfolio/projects/:projectId",
+		deps.PortfolioService.DeleteProject)
+
+	// Statistik teknologi.
+	portfolios.Get("/portfolios/stats/technologies",
+		deps.PortfolioService.TechnologyStats)
 
 	api.Post("/prestasi",
 		middleware.RequireJSON, middleware.RequireAuth(deps.JWT), deps.PrestasiService.Create)

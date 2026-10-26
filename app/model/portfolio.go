@@ -11,6 +11,7 @@ type Portfolio struct {
 }
 
 type Project struct {
+	ID           string   `bson:"id" json:"id"`
 	Title        string   `bson:"title" json:"title"`
 	Technologies []string `bson:"technologies" json:"technologies"`
 	Link         string   `bson:"link" json:"link"`
