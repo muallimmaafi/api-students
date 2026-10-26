@@ -48,6 +48,25 @@ func main() {
 	}
 	defer pool.Close()
 
+	// Koneksi MongoDB
+	mongoClient, err := database.NewMongoClient(
+		context.Background(),
+		config.GetEnv("MONGO_URI", "mongodb://localhost:27017"),
+	)
+	if err != nil {
+		logger.Error("gagal terhubung ke MongoDB", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	defer mongoClient.Disconnect(context.Background())
+
+	mongoDatabase := mongoClient.Database(
+		config.GetEnv("MONGO_DATABASE", "api_students"),
+	)
+
+	logger.Info("koneksi MongoDB berhasil",
+		slog.String("database", mongoDatabase.Name()),
+	)
+
 	jwtManager := helper.NewJWTManager(
 		jwtSecret,
 		config.GetEnv("JWT_ISSUER", "api-students"),
@@ -89,6 +108,8 @@ func main() {
 		StudentService:  studentService,
 		PrestasiService: prestasiService,
 		AuthService:     authService,
+		MongoDB:         mongoClient,
+		MongoDatabase:   mongoDatabase,
 	})
 	port := config.GetEnv("APP_PORT", "3000")
 

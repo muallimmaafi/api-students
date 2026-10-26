@@ -10,12 +10,15 @@ import (
 	"api-students/app/service"
 	"api-students/helper"
 	"api-students/middleware"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 // Dependencies mengumpulkan seluruh service jadi satu struct, supaya
 // penambahan service berikutnya tidak mengubah tanda tangan Register.
 type Dependencies struct {
 	Pool            *pgxpool.Pool
+	MongoDB         *mongo.Client
+	MongoDatabase   *mongo.Database
 	JWT             *helper.JWTManager
 	Permissions     *helper.PermissionSet
 	StudentService  *service.StudentService
